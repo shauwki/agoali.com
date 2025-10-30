@@ -1,0 +1,217 @@
+services:
+  # ===================================================================
+  #  1. INFRASTRUCTUUR (De basis van je stack)
+  # ===================================================================
+  database:
+    image: pgvector/pgvector:pg15
+    container_name: agoa_database
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - CORE_USER_NAME=${CORE_USER_NAME}
+      - CORE_USER_PASSWORD=${CORE_USER_PASSWORD}
+      - CORE_MEMORY_DB_NAME=${CORE_MEMORY_DB_NAME}
+      - MQTT_DB_USER=${MQTT_DB_USER}
+      - MQTT_DB_PASSWORD=${MQTT_DB_PASSWORD}
+      - MQTT_DB_NAME=${MQTT_DB_NAME}
+      - N8N_DB_USER=${N8N_DB_USER}
+      - N8N_DB_PASSWORD=${N8N_DB_PASSWORD}
+      - N8N_DB_NAME=${N8N_DB_NAME}
+      - NEXTCLOUD_DB_USER=${NEXTCLOUD_DB_USER}
+      - NEXTCLOUD_DB_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+      - NEXTCLOUD_DB_NAME=${NEXTCLOUD_DB_NAME}
+      - AI_AGENTS_DB_USER=${AI_AGENTS_DB_USER}
+      - AI_AGENTS_DB_PASSWORD=${AI_AGENTS_DB_PASSWORD}
+      - AI_AGENTS_DB_NAME=${AI_AGENTS_DB_NAME}
+    volumes:
+      - ./database/data:/var/lib/postgresql/data
+      - ./database/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    networks:
+      - agoali-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: agoa_redis
+    restart: unless-stopped
+    networks:
+      - agoali-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  mqtt:
+    image: eclipse-mosquitto:latest
+    container_name: agoa_mqtt
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - "1884:1883"
+      - "9003:9001"
+    volumes:
+      - ./automation/mqtt/config:/mosquitto/config
+      - ./automation/mqtt/data:/mosquitto/data
+      - ./automation/mqtt/log:/mosquitto/log
+    networks:
+      - agoali-network
+
+  # ===================================================================
+  #  2. APPLICATIES (De hoofdapplicaties van je stack)
+  # ===================================================================
+  n8n:
+    image: n8nio/n8n
+    container_name: agoa_n8n
+    restart: unless-stopped
+    ports:
+      - "5677:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=database
+      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME}
+      - DB_POSTGRESDB_USER=${N8N_DB_USER}
+      - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - NODE_OPTIONS=--max-old-space-size=2048
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_HOST=${N8N_URL}
+      - N8N_PROTOCOL=https
+      - NODE_ENV=production
+      - GENERIC_TIMEZONE=${TZ}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_TRUSTED_PROXIES=cloudflared
+      - N8N_PROXY_HOPS=1
+      - N8N_RUNNERS_ENABLED=true
+      - EXPRESS_TRUST_PROXY=true
+      - WEBHOOK_URL=https://${N8N_URL}
+    depends_on:
+      database:
+        condition: service_healthy
+    volumes:
+      - ./automation/n8n/config:/home/node/.n8n
+      - ./backups/n8n:/home/node/backups
+    networks:
+      - agoali-network
+
+  # nextcloud:
+  #   image: nextcloud:apache
+  #   container_name: agoa_nextcloud
+  #   restart: unless-stopped
+  #   environment:
+  #     - PUID=${PUID}
+  #     - PGID=${PGID}
+  #     - POSTGRES_HOST=database
+  #     - POSTGRES_DB=${NEXTCLOUD_DB_NAME}
+  #     - POSTGRES_USER=${NEXTCLOUD_DB_USER}
+  #     - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+  #     - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_URL}
+  #     - OVERWRITEHOST=${NEXTCLOUD_URL}
+  #     - OVERWRITEPROTOCOL=https
+  #     - REDIS_HOST=redis
+  #   depends_on:
+  #     database:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./apps/nextcloud/html:/var/www/html
+  #     - ./apps/nextcloud/data:/var/www/html/data # verander het naar deze regel als je de data in de omgeving wilt houden
+  #     # - /root/devki/nextcloud:/var/www/html/data # kan anders path zijn voor jou
+  #   networks:
+  #     - agoali-network
+
+  # homeassistant:
+  #   image: ghcr.io/home-assistant/home-assistant:stable
+  #   container_name: agoa_homeassistant
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./automation/homeassistant:/config
+  #     - /etc/localtime:/etc/localtime:ro
+  #   networks:
+  #     - agoali-network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8123"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+
+  # downloader:
+  #   build: ./apps/downloader
+  #   container_name: agoa_downloader
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - redis
+  #   environment:
+  #     - DOWNLOADER_BEARER_TOKEN=${DOWNLOADER_BEARER_TOKEN}
+  #     # - TV_BEARER_TOKEN=${TV_BEARER_TOKEN}
+  #     # - M3U_URL=${M3U_URL}
+  #     - REDIS_HOST=redis
+  #     - NODE_OPTIONS=--max-old-space-size=3072
+  #   volumes:
+  #     - ./apps/downloader/downloads:/downloads
+  #     - ./apps/downloader/config:/config
+  #   networks:
+  #     - agoali-network
+
+  web:
+    build: ./apps/web
+    container_name: agoa_website
+    restart: unless-stopped
+    volumes:
+      - ./apps/web/public/html:/var/www/html
+    networks:
+      - agoali-network
+
+  # # ===================================================================
+  # #  4. TOOLS & SUPPORTING SERVICES
+  # # ===================================================================
+  chromadb:
+    image: chromadb/chroma
+    container_name: agoa_chromadb
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./database/chroma:/chroma/.chroma/index
+    networks:
+      - agoali-network
+
+  adminer:
+    image: adminer
+    container_name: agoa_adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    networks:
+      - agoali-network
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # ===================================================================
+  #  5. GATEWAY (De toegangspoort tot je stack)
+  # ===================================================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: agoa_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN} 
+    networks:
+      - agoali-network
+
+networks:
+  agoali-network:
+    name: agoali-network
+    
