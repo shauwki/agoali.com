@@ -105,32 +105,60 @@ services:
     networks:
       - agoali-network
 
-  # nextcloud:
-  #   image: nextcloud:apache
-  #   container_name: agoa_nextcloud
-  #   restart: unless-stopped
-  #   environment:
-  #     - PUID=${PUID}
-  #     - PGID=${PGID}
-  #     - POSTGRES_HOST=database
-  #     - POSTGRES_DB=${NEXTCLOUD_DB_NAME}
-  #     - POSTGRES_USER=${NEXTCLOUD_DB_USER}
-  #     - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
-  #     - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_URL}
-  #     - OVERWRITEHOST=${NEXTCLOUD_URL}
-  #     - OVERWRITEPROTOCOL=https
-  #     - REDIS_HOST=redis
-  #   depends_on:
-  #     database:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   volumes:
-  #     - ./apps/nextcloud/html:/var/www/html
-  #     - ./apps/nextcloud/data:/var/www/html/data # verander het naar deze regel als je de data in de omgeving wilt houden
-  #     # - /root/devki/nextcloud:/var/www/html/data # kan anders path zijn voor jou
-  #   networks:
-  #     - agoali-network
+  jellyfin:
+    image: jellyfin/jellyfin
+    container_name: agoa_jellyfin
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./apps/jellyfin/config:/config
+      - ./apps/jellyfin/cache:/cache
+      - /root/services/jelly/movies:/media/movies
+      - /root/services/jelly/shows:/media/shows
+    group_add:
+      - "video"
+    devices:
+      # Geef toegang tot de VideoCore hardware interface
+      - /dev/vchiq:/dev/vchiq
+      # Geef toegang tot de V4L2 video decoders/encoders
+      # Nummers kunnen variëren, maar dit zijn de meest voorkomende
+      - /dev/video10:/dev/video10
+      - /dev/video11:/dev/video11
+      - /dev/video12:/dev/video12
+    networks:
+      - agoali-network
+
+  nextcloud:
+    image: nextcloud:apache
+    container_name: agoa_nextcloud
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - POSTGRES_HOST=database
+      - POSTGRES_DB=${NEXTCLOUD_DB_NAME}
+      - POSTGRES_USER=${NEXTCLOUD_DB_USER}
+      - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+      - NEXTCLOUD_TRUSTED_DOMAINS=${NEXTCLOUD_URL}
+      - OVERWRITEHOST=${NEXTCLOUD_URL}
+      - OVERWRITEPROTOCOL=https
+      - REDIS_HOST=redis
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/nextcloud/html:/var/www/html
+      - ./apps/nextcloud/data:/var/www/html/data
+      # - /root/devki/nextcloud:/var/www/html/data # kan anders path zijn voor jou
+    networks:
+      - agoali-network
 
   # homeassistant:
   #   image: ghcr.io/home-assistant/home-assistant:stable
